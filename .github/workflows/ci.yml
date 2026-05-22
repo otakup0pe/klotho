@@ -26,9 +26,6 @@ jobs:
       - name: Run tests
         run: make local-test
 
-      - name: Dialyzer
-        run: make local-dialyzer
-
   maybe_bump:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/mainline'

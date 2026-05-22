@@ -38,7 +38,9 @@
     max_turns        :: pos_integer() | infinity,
     max_wall_clock_ms :: pos_integer(),
     tool_timeout_ms  :: pos_integer(),
-    telemetry        :: fun((term()) -> any()) | undefined,
+    telemetry        :: fun((term()) -> any())
+                      | {module(), atom()}
+                      | undefined,
     on_terminate     :: fun((term(), map()) -> any())
                       | {module(), atom()}
                       | undefined,
@@ -50,7 +52,7 @@
     steps            :: [#klotho_step{}],
     step_count = 0   :: non_neg_integer(),
     turn_count = 0   :: non_neg_integer(),
-    caller           :: {pid(), reference()} | undefined,
+    caller           :: gen_server:from() | undefined,
     caller_pid       :: pid() | undefined,
     caller_mon       :: reference() | undefined,
     start_time       :: integer() | undefined,
@@ -613,7 +615,7 @@ handle_tool_crash(MonRef, Reason, State) ->
 cancel_tool_timer(Ref, Timers) ->
     case maps:take(Ref, Timers) of
         {TimerRef, RemainingTimers} ->
-            erlang:cancel_timer(TimerRef, [{async, true}, {info, false}]),
+            _ = erlang:cancel_timer(TimerRef, [{async, true}, {info, false}]),
             RemainingTimers;
         error ->
             Timers
@@ -700,8 +702,7 @@ check_pre_request(#state{pre_request = undefined}) ->
 check_pre_request(#state{pre_request = Fun}) when is_function(Fun, 0) ->
     try Fun() of
         proceed -> proceed;
-        {circuit_open, _} = Open -> Open;
-        _ -> proceed
+        {circuit_open, _} = Open -> Open
     catch _:_ -> proceed
     end.
 
