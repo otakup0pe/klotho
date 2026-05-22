@@ -1,0 +1,14 @@
+{application, klotho, [
+    {description, "OTP library for the LLM agent tool-use loop"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {klotho_app, []}},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache-2.0"]},
+    {links, [{"GitHub", "https://github.com/otakup0pe/klotho"}]}
+]}.
