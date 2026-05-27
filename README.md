@@ -120,6 +120,36 @@ klotho is _just_ the llm loop, with optional tool use.
   with a controller process for persistence
 - **Compact or summarize history** -- bounded multi-turn only
 
+## MCP Integration
+
+`klotho_mcp` bridges [erl_mcp](https://github.com/otakup0pe/erl_mcp)
+clients into klotho agents. It converts remote MCP tools into
+`#klotho_tool{}` records whose handlers delegate back to the MCP
+client:
+
+```erlang
+{ok, Client} = erl_mcp_client:start_link(#{
+    server_url => <<"https://gitmcp.io/owner/repo">>
+}),
+{ok, McpTools} = klotho_mcp:tools_from_client(Client, 30000),
+%% McpTools are now #klotho_tool{} records, ready for klotho_agent
+
+Config = #{
+    llm => #{model => <<"anthropic/claude-sonnet-4">>},
+    tools => McpTools,
+    user_messages => [<<"Summarize the README">>],
+    max_steps => 10
+},
+{ok, Pid} = klotho_agent:start_link(Config),
+{ok, Result} = klotho_agent:run(Pid, 60000).
+```
+
+The bridge is intentionally thin -- no config, no state, no
+supervision. Each `#klotho_tool{}` handler captures the client pid
+and timeout in a closure and delegates to `erl_mcp_client:call/4`.
+Tool names use the prefixed form from `#mcp_client_tool.name` so
+`erl_mcp_client`'s `tool_prefix` option works naturally.
+
 ## Architecture
 
 `klotho_agent` is a `gen_server` with an explicit `#state{phase}`

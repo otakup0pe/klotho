@@ -18,6 +18,7 @@ assesed via `make dialyzer`.
 | Module | Description |
 |--------|-------------|
 | `klotho_agent` | gen_server agent loop: start_link/1, run/2, resume/2, status/1, stop/1 |
+| `klotho_mcp` | MCP bridge -- converts erl_mcp_client tools to #klotho_tool{} records for use in klotho agents |
 | `klotho_sup` | simple_one_for_one supervisor for dynamic agent workers |
 
 ## OTP Infrastructure
@@ -35,6 +36,7 @@ assesed via `make dialyzer`.
 
 EUnit modules (suffix `_tests`):
 - `klotho_agent_tests` -- agent loop tests (mocked LLM via meck), covers one-shot and multi-turn paths
+- `klotho_mcp_tests` -- MCP bridge tests (mocked erl_mcp_client via meck), covers tool conversion, content extraction, error propagation
 
 ## Key Design Decisions
 

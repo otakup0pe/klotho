@@ -5,7 +5,9 @@
     {mod, {klotho_app, []}},
     {applications, [
         kernel,
-        stdlib
+        stdlib,
+        inets,
+        erl_mcp
     ]},
     {env, []},
     {modules, []},
