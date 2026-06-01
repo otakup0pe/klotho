@@ -1,0 +1,64 @@
+#!/bin/sh
+# Verify that every git dep in rebar.config has a corresponding entry
+# in rebar.lock. Exits non-zero on any missing entry.
+#
+# Usage:
+#   scripts/verify-erlang-lock          # verify all git deps
+#   scripts/verify-erlang-lock <dep>    # verify a specific dep
+#
+# This is the post-condition for `make dev-upgrade` -- a passing
+# `rebar3 deps` does not guarantee the lock was rewritten, so we
+# check by hand.
+
+set -eu
+
+target="${1:-}"
+
+if [ ! -f rebar.config ]; then
+    echo "ERROR: rebar.config not found (run from project root)" >&2
+    exit 2
+fi
+
+if [ ! -f rebar.lock ]; then
+    echo "ERROR: rebar.lock not found (run \`make dev-upgrade\` first)" >&2
+    exit 2
+fi
+
+# Extract git dep names from rebar.config.
+# Matches lines like:  {dep_name, {git, "..."
+# Whitespace-tolerant. Skips package deps (no {git, ...}).
+git_deps=$(awk '
+    /\{[[:space:]]*[a-z_]+[[:space:]]*,[[:space:]]*\{[[:space:]]*git[[:space:]]*,/ {
+        match($0, /\{[[:space:]]*[a-z_]+/)
+        name = substr($0, RSTART+1, RLENGTH-1)
+        gsub(/[[:space:]]/, "", name)
+        print name
+    }
+' rebar.config)
+
+if [ -z "$git_deps" ]; then
+    echo "No git deps in rebar.config; nothing to verify."
+    exit 0
+fi
+
+missing=""
+for dep in $git_deps; do
+    if [ -n "$target" ] && [ "$dep" != "$target" ]; then
+        continue
+    fi
+    if ! grep -q "<<\"${dep}\">>" rebar.lock; then
+        missing="${missing} ${dep}"
+    fi
+done
+
+if [ -n "$missing" ]; then
+    echo "ERROR: git deps missing from rebar.lock:${missing}" >&2
+    echo "Hint: run \`make dev-upgrade DEP=<name>\` to populate, then re-verify." >&2
+    exit 1
+fi
+
+if [ -n "$target" ]; then
+    echo "OK: ${target} is locked."
+else
+    echo "OK: all git deps from rebar.config are locked."
+fi
