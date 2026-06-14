@@ -147,6 +147,7 @@ handle_call(run, From, #state{phase = idle} = State) ->
     MonRef = erlang:monitor(process, CallerPid),
     Now = erlang:monotonic_time(millisecond),
     TurnCount = 1,
+    logger:debug("klotho_agent turn_start turn=~b", [TurnCount]),
     emit_telemetry(State, {turn_start, TurnCount}),
     NewState = State#state{
         caller = From,
@@ -171,8 +172,11 @@ handle_call({resume, NewUserMessage}, From, #state{phase = awaiting_resume} = St
     case State#state.caller_pid of
         CallerPid ->
             NextTurn = State#state.turn_count + 1,
+            logger:debug("klotho_agent resume turn=~b", [NextTurn]),
             case NextTurn > State#state.max_turns of
                 true ->
+                    logger:debug("klotho_agent turn_limit_hit turns_used=~b max=~b",
+                                 [State#state.turn_count, State#state.max_turns]),
                     emit_telemetry(State, {turn_limit_hit, State#state.turn_count,
                                            State#state.max_turns}),
                     LastMsg = find_last_assistant_message(State#state.messages),
@@ -410,6 +414,8 @@ handle_llm_response(#chat_response{choices = Choices}, State) ->
         [Choice | _] ->
             Message = maps:get(<<"message">>, Choice, #{}),
             FinishReason = maps:get(<<"finish_reason">>, Choice, undefined),
+            logger:debug("klotho_agent llm_response finish_reason=~p choices=~b",
+                         [FinishReason, length(Choices)]),
             handle_choice(Message, FinishReason, State);
         [] ->
             finish_with_error({llm_error, empty_choices}, State)
@@ -420,6 +426,8 @@ handle_llm_response(Other, State) ->
 handle_choice(Message, FinishReason, State)
   when FinishReason =:= <<"stop">>; FinishReason =:= stop ->
     Content = maps:get(<<"content">>, Message, <<>>),
+    logger:debug("klotho_agent choice=stop turn=~b preview=~s",
+                 [State#state.turn_count, truncate_preview(Content, 200)]),
     Elapsed = elapsed_ms(State),
     TurnNumber = State#state.turn_count,
     Result = #klotho_result{
@@ -445,6 +453,8 @@ handle_choice(Message, FinishReason, State)
 handle_choice(Message, FinishReason, State)
   when FinishReason =:= <<"tool_calls">>; FinishReason =:= tool_calls ->
     ToolCalls = maps:get(<<"tool_calls">>, Message, []),
+    logger:debug("klotho_agent choice=tool_calls turn=~b tool_count=~b",
+                 [State#state.turn_count, length(ToolCalls)]),
     case ToolCalls of
         [] ->
             finish_with_error({llm_error, tool_calls_empty}, State);
@@ -478,6 +488,9 @@ handle_choice(Message, FinishReason, State)
 handle_choice(Message, FinishReason, State) ->
     %% Other finish reasons (length, content_filter, etc.)
     Content = maps:get(<<"content">>, Message, <<>>),
+    logger:debug("klotho_agent choice=other finish_reason=~p turn=~b preview=~s",
+                 [FinishReason, State#state.turn_count,
+                  truncate_preview(Content, 200)]),
     Elapsed = elapsed_ms(State),
     TurnNumber = State#state.turn_count,
     Result = #klotho_result{
@@ -501,6 +514,10 @@ handle_choice(Message, FinishReason, State) ->
     {noreply, NewState#state{caller = undefined}}.
 
 dispatch_tool_calls(ToolCalls, Tools, ToolTimeout) ->
+    ToolNames = [maps:get(<<"name">>, maps:get(<<"function">>, TC, #{}), <<>>)
+                 || TC <- ToolCalls],
+    logger:debug("klotho_agent dispatch_tool_calls count=~b names=~p",
+                 [length(ToolCalls), ToolNames]),
     Self = self(),
     ToolMap = build_tool_map(Tools),
     {RefTcPairs, PidMap, TimerMap} = lists:foldl(fun(TC, {Pairs, Pids, Timers}) ->
@@ -560,6 +577,9 @@ decode_arguments(_) ->
 handle_tool_result(Ref, ToolCallId, Result, State) ->
     case maps:take(Ref, State#state.dispatch_refs) of
         {_TC, RemainingRefs} ->
+            ResultPreview = truncate_preview(format_tool_result(Result), 200),
+            logger:debug("klotho_agent tool_result id=~s preview=~s",
+                         [ToolCallId, ResultPreview]),
             NewTimers = cancel_tool_timer(Ref, State#state.tool_timers),
             NewPids = maps:remove(Ref, State#state.dispatch_pids),
             Content = format_tool_result(Result),
@@ -629,6 +649,8 @@ format_tool_result({error, Reason}) ->
     iolist_to_binary(io_lib:format("ERROR: ~p", [Reason])).
 
 finish_with_error(Reason, State) ->
+    logger:debug("klotho_agent finish_with_error reason=~p turn=~b",
+                 [Reason, State#state.turn_count]),
     Elapsed = elapsed_ms(State),
     TurnNumber = State#state.turn_count,
     Result = #klotho_result{
@@ -645,6 +667,8 @@ finish_with_error(Reason, State) ->
                                        last_error = Reason}).
 
 finish_with_max_steps(State) ->
+    logger:debug("klotho_agent max_steps_hit step_count=~b turn=~b",
+                 [State#state.step_count, State#state.turn_count]),
     Elapsed = elapsed_ms(State),
     TurnNumber = State#state.turn_count,
     Result = #klotho_result{
@@ -659,6 +683,8 @@ finish_with_max_steps(State) ->
     reply_and_stop(Result, State#state{last_result = Result}).
 
 reply_and_stop(Result, State) ->
+    logger:debug("klotho_agent reply_and_stop turn=~b steps=~b",
+                 [State#state.turn_count, State#state.step_count]),
     case State#state.caller of
         undefined ->
             {stop, normal, State#state{phase = failed}};
@@ -666,6 +692,20 @@ reply_and_stop(Result, State) ->
             gen_server:reply(Caller, {ok, Result}),
             {stop, normal, State#state{caller = undefined, phase = failed}}
     end.
+
+truncate_preview(Bin, Max) when is_binary(Bin), byte_size(Bin) =< Max ->
+    Bin;
+truncate_preview(Bin, Max) when is_binary(Bin) ->
+    <<Head:Max/binary, _/binary>> = Bin,
+    <<Head/binary, "...">>;
+truncate_preview(List, Max) when is_list(List) ->
+    truncate_preview(iolist_to_binary(List), Max);
+truncate_preview(undefined, _Max) ->
+    <<"<undefined>">>;
+truncate_preview(null, _Max) ->
+    <<"<null>">>;
+truncate_preview(Other, Max) ->
+    truncate_preview(iolist_to_binary(io_lib:format("~p", [Other])), Max).
 
 normalize_user_message(Msg) when is_binary(Msg) ->
     #{<<"role">> => <<"user">>, <<"content">> => Msg};
