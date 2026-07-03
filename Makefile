@@ -10,6 +10,8 @@ REBAR3 ?= rebar3
 CHECKOUTS_OVERRIDE = docker-compose.checkouts.yml
 COMPOSE ?= docker compose -f docker-compose.test.yml -f $(CHECKOUTS_OVERRIDE)
 
+export BUILDX_BUILDER ?= default
+
 all: compile
 
 compile: docker-compile
