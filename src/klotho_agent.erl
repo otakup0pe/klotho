@@ -302,7 +302,9 @@ enter_calling(State) ->
                 steps = State#state.steps,
                 total_steps = State#state.step_count,
                 turn_number = State#state.turn_count,
-                elapsed_ms = elapsed_ms(State)
+                elapsed_ms = elapsed_ms(State),
+                %% No LLM response was made -- no finish_reason to attribute.
+                finish_reason = undefined
             },
             gen_server:reply(State#state.caller, {error, {circuit_open, Reason}}),
             {noreply, State#state{phase = failed, last_result = Result,
@@ -436,7 +438,8 @@ handle_choice(Message, FinishReason, State)
         steps = lists:reverse(State#state.steps),
         total_steps = State#state.step_count,
         turn_number = TurnNumber,
-        elapsed_ms = Elapsed
+        elapsed_ms = Elapsed,
+        finish_reason = FinishReason
     },
     emit_telemetry(State, {turn_end, TurnNumber}),
     emit_telemetry(State, {done, Result}),
@@ -499,7 +502,8 @@ handle_choice(Message, FinishReason, State) ->
         steps = lists:reverse(State#state.steps),
         total_steps = State#state.step_count,
         turn_number = TurnNumber,
-        elapsed_ms = Elapsed
+        elapsed_ms = Elapsed,
+        finish_reason = FinishReason
     },
     emit_telemetry(State, {turn_end, TurnNumber}),
     emit_telemetry(State, {finished, FinishReason, Result}),
@@ -660,7 +664,9 @@ finish_with_error(Reason, State) ->
         total_steps = State#state.step_count,
         turn_number = TurnNumber,
         elapsed_ms = Elapsed,
-        error = Reason
+        error = Reason,
+        %% Agent-internal failure, not an LLM finish state.
+        finish_reason = undefined
     },
     emit_telemetry(State, {error, Reason}),
     reply_and_stop(Result, State#state{last_result = Result,
@@ -677,7 +683,9 @@ finish_with_max_steps(State) ->
         steps = lists:reverse(State#state.steps),
         total_steps = State#state.step_count,
         turn_number = TurnNumber,
-        elapsed_ms = Elapsed
+        elapsed_ms = Elapsed,
+        %% klotho's own step ceiling, not an LLM finish_reason.
+        finish_reason = undefined
     },
     emit_telemetry(State, max_steps_exceeded),
     reply_and_stop(Result, State#state{last_result = Result}).

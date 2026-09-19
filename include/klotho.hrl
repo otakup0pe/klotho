@@ -35,7 +35,15 @@
     total_steps  :: non_neg_integer(),
     turn_number  :: pos_integer() | undefined,
     elapsed_ms   :: non_neg_integer(),
-    error        :: term() | undefined
+    error        :: term() | undefined,
+    %% Raw LLM finish_reason (<<"stop">>, <<"length">>, <<"tool_calls">>,
+    %% <<"content_filter">>, ...) when the result came from an LLM
+    %% response; undefined when there was no response to attribute it to
+    %% (circuit open, agent-internal error, klotho's own max_steps).
+    %% Lets a caller tell a token-ceiling truncation (<<"length">>) apart
+    %% from a natural completion (<<"stop">>) -- byte-identical otherwise.
+    %% Default undefined keeps existing named-field matches working.
+    finish_reason :: binary() | atom() | undefined
 }).
 
 -endif.

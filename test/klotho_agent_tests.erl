@@ -31,6 +31,22 @@ mock_stop_response(Content) ->
         cost = 0.0
     }.
 
+%% Build a mock chat_response truncated by the token ceiling
+%% (finish_reason=length). Partial content, no tool_calls -- this is the
+%% case that was previously indistinguishable from a natural stop.
+mock_length_response(Content) ->
+    #chat_response{
+        id = <<"resp-len">>,
+        model = <<"test/model">>,
+        choices = [#{
+            <<"message">> => #{<<"role">> => <<"assistant">>,
+                               <<"content">> => Content},
+            <<"finish_reason">> => <<"length">>
+        }],
+        usage = #{},
+        cost = 0.0
+    }.
+
 %% Build a mock chat_response that requests tool calls.
 mock_tool_calls_response(ToolCalls) ->
     #chat_response{
@@ -119,6 +135,49 @@ simple_stop_test_() ->
           ?_assert(Result#klotho_result.elapsed_ms >= 0),
           ?_assertEqual(1, Result#klotho_result.turn_number)
          ]
+     end}.
+
+%% Test: a truncated (finish_reason=length) response surfaces the finish
+%% reason on the result. Previously a length-truncated response collapsed
+%% into status=ok with partial content, byte-identical to a natural stop
+%% -- the truncation fact was unrecoverable at the record level. The
+%% finish_reason field makes that already-known value survive to the
+%% caller. Status stays ok (control flow unchanged); only visibility is
+%% added.
+length_finish_reason_surfaces_test_() ->
+    {setup,
+     fun setup_meck/0,
+     fun teardown_meck/1,
+     fun(_) ->
+         meck:expect(openrouter, chat, fun(_Msgs, _Opts) ->
+             {ok, mock_length_response(<<"partial answer cut off">>)}
+         end),
+         Config = base_config(),
+         {ok, Pid} = klotho_agent:start_link(Config),
+         {ok, Result} = klotho_agent:run(Pid, 5000),
+         [
+          ?_assertEqual(ok, Result#klotho_result.status),
+          ?_assertEqual(<<"partial answer cut off">>,
+                        Result#klotho_result.message),
+          ?_assertEqual(<<"length">>, Result#klotho_result.finish_reason)
+         ]
+     end}.
+
+%% Test: a natural stop surfaces finish_reason=<<"stop">>, distinct from
+%% the truncation case above. Together the two tests prove the field
+%% actually discriminates truncated from complete.
+stop_finish_reason_surfaces_test_() ->
+    {setup,
+     fun setup_meck/0,
+     fun teardown_meck/1,
+     fun(_) ->
+         meck:expect(openrouter, chat, fun(_Msgs, _Opts) ->
+             {ok, mock_stop_response(<<"complete answer">>)}
+         end),
+         Config = base_config(),
+         {ok, Pid} = klotho_agent:start_link(Config),
+         {ok, Result} = klotho_agent:run(Pid, 5000),
+         [?_assertEqual(<<"stop">>, Result#klotho_result.finish_reason)]
      end}.
 
 %% Test: single tool call round-trip
