@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, mainline]
+    branches: [mainline]
   pull_request:
-    branches: [main, mainline]
+    branches: [mainline]
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -13,7 +16,7 @@ jobs:
       image: erlang:27-slim
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install build deps
         run: apt-get update && apt-get install -y make git curl
@@ -26,14 +29,24 @@ jobs:
       - name: Run tests
         run: make local-test
 
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Scan full history with Gitleaks
+        run: make lint-secrets
+
   maybe_bump:
-    needs: test
+    needs: [test, secrets]
     if: github.event_name == 'push' && github.ref == 'refs/heads/mainline'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -46,28 +59,21 @@ jobs:
       - name: Check for version bump hint
         id: bump_check
         run: |
-          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          LAST_TAG=$(git tag --merged HEAD --sort=-v:refname \
+            | grep -Em1 '^[0-9]+\.[0-9]+\.[0-9]+$' || true)
           if [ -z "$LAST_TAG" ]; then
             RANGE="HEAD"
           else
             RANGE="${LAST_TAG}..HEAD"
           fi
-          MESSAGES=$(git log --format=%B "$RANGE")
-          if echo "$MESSAGES" | grep -qiE '#major|bump:major'; then
-            echo "part=major" >> "$GITHUB_OUTPUT"
-          elif echo "$MESSAGES" | grep -qiE '#minor|bump:minor'; then
-            echo "part=minor" >> "$GITHUB_OUTPUT"
-          elif echo "$MESSAGES" | grep -qiE '#patch|bump:patch'; then
-            echo "part=patch" >> "$GITHUB_OUTPUT"
-          else
-            echo "part=" >> "$GITHUB_OUTPUT"
-          fi
+          PART=$(git log --format=%B "$RANGE" | sh scripts/version-bump-part)
+          echo "part=${PART}" >> "$GITHUB_OUTPUT"
 
       - name: Compute next version
         id: next_version
         if: steps.bump_check.outputs.part != ''
         run: |
-          pip install avakas
+          python -m pip install avakas==3.0.14
           CURRENT=$(avakas show . --flavor git-native)
           PART=${{ steps.bump_check.outputs.part }}
           IFS='.' read -r MAJ MIN PAT <<< "$CURRENT"
@@ -86,12 +92,18 @@ jobs:
           CURRENT: ${{ steps.next_version.outputs.current }}
           NEXT: ${{ steps.next_version.outputs.next }}
         run: |
+          grep -Fq "{vsn, \"${CURRENT}\"}" src/klotho.app.src
+          grep -Fq "{tag, \"${CURRENT}\"}" README.md
           sed -i "s/{vsn, \"${CURRENT}\"}/{vsn, \"${NEXT}\"}/" src/klotho.app.src
           sed -i "s|{tag, \"${CURRENT}\"}|{tag, \"${NEXT}\"}|" README.md
-          if git diff --quiet src/klotho.app.src README.md; then
-            echo "expected version record changes for ${CURRENT} -> ${NEXT}, found none" >&2
+          git diff --quiet -- src/klotho.app.src && {
+            echo "src/klotho.app.src did not advance to ${NEXT}" >&2
             exit 1
-          fi
+          }
+          git diff --quiet -- README.md && {
+            echo "README.md did not advance to ${NEXT}" >&2
+            exit 1
+          }
           git add src/klotho.app.src README.md
           git commit -m "Version bumped to ${NEXT}"
 

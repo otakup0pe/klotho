@@ -1,11 +1,7 @@
 -module(klotho_sup).
 -behaviour(supervisor).
 
-%% @doc Top-level supervisor for klotho.
-%%
-%% Uses simple_one_for_one strategy so consumers can dynamically
-%% start klotho_agent workers under this supervisor via
-%% klotho_sup:start_agent/1.
+%% @doc Supervises dynamically started klotho_agent workers.
 
 -export([start_link/0, start_agent/1]).
 -export([init/1]).

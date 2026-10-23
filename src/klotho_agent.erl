@@ -1,22 +1,11 @@
 -module(klotho_agent).
 -behaviour(gen_server).
 
-%% @doc The klotho agent loop --  one or more %% turns through
-%% an LLM loop, with optional tool-use.
+%% @doc Runs one or more LLM turns with optional tool dispatch.
 %%
-%% Phases: idle -> calling -> dispatching -> awaiting_resume | done | failed
-%%
-%% The worker accepts a config map, monitors the caller, drives
-%% LLM requests through erl_openrouter, dispatches tool calls to
-%% registered handlers, and loops until finish_reason=stop or
-%% a bound (max_steps / max_turns / wall_clock) is hit.
-%%
-%% After finish_reason=stop the agent enters `awaiting_resume'.
-%% The original caller may feed a follow-up user message via
-%% resume/2 to start another turn; the agent re-enters `calling'
-%% with the augmented history.  When the turn limit is reached
-%% the agent returns {error, {turn_limit_exhausted, Info}} and
-%% terminates.
+%% The agent monitors the process that calls run/2 and accepts
+%% resume/2 only from that process. A completed turn remains in
+%% `awaiting_resume' until resumed or stopped.
 
 -include("klotho.hrl").
 -include_lib("erl_openrouter/include/openrouter.hrl").
@@ -68,32 +57,16 @@
     tool_timers      :: #{reference() => reference()} | undefined
 }).
 
-%% @doc Start a klotho agent worker.
+%% @doc Start an agent worker.
 %%
-%% Config keys:
-%%   llm              := #{model => binary(),
-%%                         temperature => float()} (required)
-%%   tools            := [#klotho_tool{}]           (required)
-%%   system_messages  => [binary()]                  (optional)
-%%   user_messages    := [binary()]                  (required)
-%%   max_steps        => pos_integer()               (default 15)
-%%   max_turns        => pos_integer()               (default 15)
-%%   max_wall_clock_ms => pos_integer()              (default 120000)
-%%   tool_timeout_ms  => pos_integer()               (default 30000)
-%%   telemetry        => fun((term()) -> any())      (optional)
-%%   on_terminate     => fun((Reason, AgentSnapshot) -> any())
-%%                     | {Module, Function}
-%%                     | undefined                   (default undefined)
+%% Required config keys are `llm' (including `model') and a non-empty
+%% `user_messages' list. Optional keys are `tools', `system_messages',
+%% `max_steps', `max_turns', `max_wall_clock_ms', `tool_timeout_ms',
+%% `telemetry', `pre_request', and `on_terminate'.
 %%
-%% The on_terminate hook fires synchronously during gen_server
-%% terminate/2.  It receives the termination reason and a snapshot
-%% map:
-%%   #{phase, turn, step_count, messages, steps, result,
-%%     elapsed_ms, last_error, max_turns, max_steps,
-%%     tool_timeout_ms}
-%% The hook MUST NOT crash terminate -- if it raises, a warning is
-%% logged and termination continues.  Long-running cleanup should
-%% spawn its own process and return immediately.
+%% `pre_request' runs before each LLM request and returns `proceed' or
+%% `{circuit_open, Reason}'. `on_terminate' receives the termination
+%% reason and a flat state snapshot.
 -spec start_link(map()) -> {ok, pid()} | {error, term()}.
 start_link(Config) ->
     gen_server:start_link(?MODULE, Config, []).
@@ -761,24 +734,8 @@ emit_telemetry(#state{telemetry = Fun}, Event) when is_function(Fun, 1) ->
 emit_telemetry(#state{telemetry = {Mod, FunName}}, Event) ->
     try Mod:FunName(Event) catch _:_ -> ok end.
 
-%% @doc Build a snapshot map of agent state for the on_terminate hook.
-%%
-%% Shape:
-%%   #{phase         => atom(),
-%%     turn          => non_neg_integer(),
-%%     step_count    => non_neg_integer(),
-%%     messages      => [map()],
-%%     steps         => [#klotho_step{}],
-%%     result        => #klotho_result{} | undefined,
-%%     elapsed_ms    => non_neg_integer(),
-%%     last_error    => term() | undefined,
-%%     max_turns     => pos_integer(),
-%%     max_steps     => pos_integer(),
-%%     tool_timeout_ms => pos_integer()}
-%%
-%% The map shape is intentionally flat for forward compatibility.
-%% Consumers should treat unrecognized keys as additive; pattern-
-%% matching on the full shape will break on future additions.
+%% @private Snapshot keys are additive; consumers should not match
+%% the complete map.
 build_agent_snapshot(State) ->
     #{phase         => State#state.phase,
       turn          => State#state.turn_count,

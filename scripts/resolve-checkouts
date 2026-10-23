@@ -3,7 +3,9 @@
 # Each symlink target is bind-mounted at its real host path inside the
 # container so the symlink at /app/_checkouts/<name> resolves.
 
-CHECKOUTS_DIR="${1:-_checkouts}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+CHECKOUTS_DIR="${1:-$REPO_ROOT/_checkouts}"
 SERVICES="test"
 VOLUMES=""
 

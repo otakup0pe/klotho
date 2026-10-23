@@ -12,32 +12,11 @@
 tools_from_client(ClientRef) ->
     tools_from_client(ClientRef, #{}).
 
-%% @doc Discover tools from an erl_mcp_client and convert them to
-%% klotho_tool records.
+%% @doc Discover MCP tools and convert them to klotho tools.
 %%
-%% When the second argument is an integer, it is treated as a
-%% timeout (backward compatible). When it is a map, supported
-%% options are:
-%%
-%%   `timeout' -- per-tool call timeout in ms (default 30000).
-%%
-%%   `filter' -- `fun(#mcp_client_tool{}) -> boolean()'. Called
-%%     before conversion. Only tools for which the function
-%%     returns `true' are included. Default: all tools.
-%%
-%%   `transform' -- `fun(#klotho_tool{}) -> #klotho_tool{}'.
-%%     Called after conversion. Use to wrap handlers (metrics,
-%%     logging), modify descriptions, or adjust schemas.
-%%     Default: identity.
-%%
-%% Example:
-%%
-%%   klotho_mcp:tools_from_client(Pid, #{
-%%       timeout => 60000,
-%%       filter => fun(#mcp_client_tool{name = N}) ->
-%%           N =:= <<"memory_read">>
-%%       end
-%%   }).
+%% An integer second argument sets the per-call timeout. An options
+%% map accepts `timeout', a `filter' predicate over MCP tools, and a
+%% `transform' function over converted klotho tools.
 -spec tools_from_client(ClientRef, TimeoutOrOpts) ->
     {ok, [#klotho_tool{}]} | {error, term()}
   when ClientRef :: pid() | atom(),

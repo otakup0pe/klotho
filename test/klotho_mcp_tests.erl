@@ -28,14 +28,14 @@ cleanup(_) ->
 
 converts_tools() ->
     Tool = #mcp_client_tool{
-        name = <<"fetch_moirai_documentation">>,
+        name = <<"docs_fetch_documentation">>,
         raw_name = <<"fetch_documentation">>,
         description = <<"Fetch docs">>,
         input_schema = #{<<"type">> => <<"object">>}
     },
     meck:expect(erl_mcp_client, list_tools, fun(_) -> {ok, [Tool]} end),
     {ok, [KT]} = klotho_mcp:tools_from_client(self(), 30000),
-    ?assertEqual(<<"fetch_moirai_documentation">>, KT#klotho_tool.name),
+    ?assertEqual(<<"docs_fetch_documentation">>, KT#klotho_tool.name),
     ?assertEqual(<<"Fetch docs">>, KT#klotho_tool.description),
     ?assertEqual(#{<<"type">> => <<"object">>}, KT#klotho_tool.input_schema),
     ?assert(is_function(KT#klotho_tool.handler, 1)).
@@ -130,7 +130,6 @@ handles_multi_part_content() ->
         input_schema = #{}
     },
     meck:expect(erl_mcp_client, list_tools, fun(_) -> {ok, [Tool]} end),
-    %% Mix of text and non-text parts -- only text extracted
     meck:expect(erl_mcp_client, call, fun(_, _, _, _) ->
         {ok, #{<<"content">> => [
             #{<<"type">> => <<"text">>, <<"text">> => <<"hello">>},

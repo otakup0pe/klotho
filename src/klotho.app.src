@@ -7,8 +7,9 @@
         kernel,
         stdlib,
         inets,
-        erl_mcp
+        erl_openrouter
     ]},
+    {optional_applications, [erl_mcp]},
     {env, []},
     {modules, []},
     {licenses, ["Apache-2.0"]},

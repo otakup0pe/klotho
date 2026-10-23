@@ -3,12 +3,16 @@ ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
 .PHONY: all compile docker-compile local-compile \
         test docker-test local-test local-eunit local-ct \
         dialyzer docker-dialyzer local-dialyzer \
-        shell docker-shell local-shell \
-        docker-build resolve-checkouts dev-upgrade clean
+        shell docker-shell local-shell lint-secrets \
+        lint-version-bump docker-build resolve-checkouts dev-upgrade clean
 
 REBAR3 ?= rebar3
 CHECKOUTS_OVERRIDE = docker-compose.checkouts.yml
+CHECKOUTS_DIR ?=
 COMPOSE ?= docker compose -f docker-compose.test.yml -f $(CHECKOUTS_OVERRIDE)
+GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+GITLEAKS_MODE ?= git
+GITLEAKS_SOURCE ?= .
 
 export BUILDX_BUILDER ?= default
 
@@ -20,7 +24,7 @@ dialyzer: docker-dialyzer
 shell: docker-shell
 
 resolve-checkouts:
-	@sh scripts/resolve-checkouts > $(CHECKOUTS_OVERRIDE)
+	@sh scripts/resolve-checkouts "$(CHECKOUTS_DIR)" > $(CHECKOUTS_OVERRIDE)
 
 docker-build: resolve-checkouts
 	$(COMPOSE) build
@@ -55,12 +59,26 @@ local-dialyzer:
 local-shell:
 	$(REBAR3) shell
 
-# `make dev-upgrade`             -- bump every git dep to latest branch tip
-# `make dev-upgrade DEP=erl_mcp` -- bump just that dep
-# Runs the reliable unlock + rm + deps + lock sequence inside the test
-# container, then verifies rebar.lock was actually rewritten on the host.
-# `rebar3 upgrade` alone has been observed to silently no-op for git
-# branch deps. See: memory://workflow/erlang-dep-management
+lint-version-bump:
+	@test "$$(printf 'fix parser #patch\n' | sh scripts/version-bump-part)" = patch
+	@test "$$(printf 'add tool BUMP:minor\n' | sh scripts/version-bump-part)" = minor
+	@test "$$(printf 'break API bump:major\n' | sh scripts/version-bump-part)" = major
+	@test "$$(printf 'major wins #patch #major\n' | sh scripts/version-bump-part)" = major
+	@test -z "$$(printf 'ordinary commit\n' | sh scripts/version-bump-part)"
+
+lint-secrets:
+	docker run --rm \
+		--user "$$(id -u):$$(id -g)" \
+		--network none \
+		--read-only \
+		--cap-drop=ALL \
+		--tmpfs /tmp:rw,noexec,nosuid,size=16m \
+		-v "$(ROOT_DIR):/repo:ro" \
+		-w /repo \
+		$(GITLEAKS_IMAGE) $(GITLEAKS_MODE) $(GITLEAKS_SOURCE) --redact --no-banner --verbose
+
+# Unlock before resolving because rebar3 upgrade can leave git branch
+# dependencies pinned to stale refs while still exiting successfully.
 dev-upgrade: resolve-checkouts
 	@target='$(DEP)'; \
 	if [ -z "$$target" ]; then \

@@ -10,6 +10,7 @@
          init_per_testcase/2, end_per_testcase/2]).
 
 -export([app_starts_and_stops/1,
+         mcp_dependency_is_optional/1,
          supervisor_start_agent/1,
          agent_cleaned_up_after_stop/1,
          agent_one_shot_via_supervisor/1,
@@ -21,7 +22,8 @@ all() ->
 
 groups() ->
     [{lifecycle, [sequence],
-      [app_starts_and_stops]},
+      [app_starts_and_stops,
+       mcp_dependency_is_optional]},
      {supervisor, [],
       [supervisor_start_agent,
        agent_cleaned_up_after_stop,
@@ -121,6 +123,19 @@ app_starts_and_stops(_Config) ->
     ?assert(is_pid(whereis(klotho_sup))),
     ok = application:stop(klotho),
     ?assertEqual(undefined, whereis(klotho_sup)).
+
+mcp_dependency_is_optional(_Config) ->
+    {ok, Required} = application:get_key(klotho, applications),
+    {ok, Optional} = application:get_key(klotho, optional_applications),
+    ?assert(lists:member(erl_openrouter, Required)),
+    ?assertNot(lists:member(erl_mcp, Required)),
+    ?assert(lists:member(erl_mcp, Optional)),
+
+    _ = application:stop(erl_mcp),
+    ?assertNot(lists:keymember(erl_mcp, 1, application:which_applications())),
+    {ok, _} = application:ensure_all_started(klotho),
+    ?assertNot(lists:keymember(erl_mcp, 1, application:which_applications())),
+    ok = application:stop(klotho).
 
 %%--------------------------------------------------------------------
 %% supervisor group

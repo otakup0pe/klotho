@@ -9,9 +9,7 @@ services:
       - .:/app
       - build_cache:/app/_build
       - rebar3_cache:/root/.cache/rebar3
-      - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
     environment:
-      SSH_AUTH_SOCK: /ssh-agent
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     command: ["make", "local-test"]
 
@@ -19,8 +17,3 @@ volumes:
   build_cache:
   rebar3_cache:
 
-networks:
-  default:
-    ipam:
-      config:
-        - subnet: 10.42.0.48/28
