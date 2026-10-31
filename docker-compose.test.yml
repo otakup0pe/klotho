@@ -4,11 +4,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.test
+      args:
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
     working_dir: /app
     volumes:
       - .:/app
       - build_cache:/app/_build
-      - rebar3_cache:/root/.cache/rebar3
+      # Matches REBAR_CACHE_DIR in Dockerfile.test. Not under /root, because
+      # the container no longer runs as root.
+      - rebar3_cache:/cache
     environment:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     command: ["make", "local-test"]

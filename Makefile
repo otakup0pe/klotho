@@ -7,6 +7,10 @@ ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
         lint-version-bump docker-build resolve-checkouts dev-upgrade clean
 
 REBAR3 ?= rebar3
+# Passed to Dockerfile.test so the container runs as the caller rather than
+# root, keeping files it writes into the bind-mounted tree owned by the caller.
+export HOST_UID ?= $(shell id -u)
+export HOST_GID ?= $(shell id -g)
 CHECKOUTS_OVERRIDE = docker-compose.checkouts.yml
 CHECKOUTS_DIR ?=
 COMPOSE ?= docker compose -f docker-compose.test.yml -f $(CHECKOUTS_OVERRIDE)
@@ -27,6 +31,25 @@ resolve-checkouts:
 	@sh scripts/resolve-checkouts "$(CHECKOUTS_DIR)" > $(CHECKOUTS_OVERRIDE)
 
 docker-build: resolve-checkouts
+	@# docker-compose.test.yml mounts a named volume at /app/_build. If that
+	@# directory does not already exist, Docker creates the mount target
+	@# inside the bind-mounted project directory as root, and host-side
+	@# targets such as `dev-upgrade' can then no longer write there. Creating
+	@# it first means Docker finds it and leaves the ownership alone.
+	@mkdir -p _build
+	@# An earlier root container run leaves _build and the build_cache volume
+	@# owned by root. The container now runs as the caller, so it can no
+	@# longer delete those files, and rebar3 reports that as dozens of
+	@# "Permission denied" lines while removing a dependency. Fail with the
+	@# two commands that clear it instead.
+	@if [ ! -w _build ]; then \
+		echo "ERROR: _build is not writable by $$(id -un)." >&2; \
+		echo "  A previous container run created it as root. Clear both the" >&2; \
+		echo "  directory and the stale build volume, then re-run:" >&2; \
+		echo "    sudo rm -rf _build" >&2; \
+		echo "    docker volume rm $$(basename $(ROOT_DIR))_build_cache" >&2; \
+		exit 1; \
+	fi
 	$(COMPOSE) build
 
 docker-compile: docker-build
@@ -79,11 +102,20 @@ lint-secrets:
 
 # Unlock before resolving because rebar3 upgrade can leave git branch
 # dependencies pinned to stale refs while still exiting successfully.
+# `unlock --all` is required, not optional: rebar3 REJECTS the bare
+# `rebar3 unlock` form, so dropping the flag means nothing un-pins and
+# the bump resolves against the refs already in rebar.lock.
+# verify-erlang-lock then reports which refs actually MOVED, against the
+# baseline snapshotted before the container runs -- a missing dep is
+# fatal, an unchanged ref is not (a dep already at its tip correctly
+# does not move).
 dev-upgrade: resolve-checkouts
+	@mkdir -p _build
+	@sh scripts/verify-erlang-lock --snapshot > _build/rebar-lock.before
 	@target='$(DEP)'; \
 	if [ -z "$$target" ]; then \
 		echo "Bumping all git deps to latest allowed refs..."; \
-		unlock_cmd='rebar3 unlock'; \
+		unlock_cmd='rebar3 unlock --all'; \
 		rm_cmd='rm -rf _build/default/lib _build/test/lib'; \
 	else \
 		echo "Bumping $$target..."; \
@@ -91,7 +123,9 @@ dev-upgrade: resolve-checkouts
 		rm_cmd="rm -rf _build/default/lib/$$target _build/test/lib/$$target"; \
 	fi; \
 	$(COMPOSE) run --rm test sh -c "$$unlock_cmd && $$rm_cmd && rebar3 deps && rebar3 lock"
-	@sh scripts/verify-erlang-lock $(DEP)
+	@rc=0; sh scripts/verify-erlang-lock --since _build/rebar-lock.before $(DEP) || rc=$$?; \
+		rm -f _build/rebar-lock.before; \
+		exit $$rc
 
 clean:
 	rm -rf _build $(CHECKOUTS_OVERRIDE)

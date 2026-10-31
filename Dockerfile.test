@@ -1,14 +1,43 @@
-FROM erlang:27-slim
+FROM erlang:27.3.4.9-slim
 
 RUN apt-get update \
-    && apt-get install -y make git \
+    && apt-get install -y make git curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-RUN git clone https://github.com/erlang/rebar3.git /tmp/rebar3 \
-    && cd /tmp/rebar3 && ./bootstrap \
-    && install -m 755 /tmp/rebar3/rebar3 /usr/local/bin/rebar3 \
-    && rm -rf /tmp/rebar3
+# The erlang image tag pins Erlang but NOT rebar3, so an uninstalled
+# rebar3 drifts with the base image's build date. Pin the published
+# release escript instead. 3.28.0 fixes CVE-2026-103060 (first fixed in
+# 3.27.2); it also reads TLS roots from the OS store rather than bundled
+# Certifi. `rebar3 version` asserts that this download, not the image's
+# own copy, is what ended up on PATH.
+ARG REBAR3_VERSION=3.28.0
+RUN curl -fsSL https://github.com/erlang/rebar3/releases/download/${REBAR3_VERSION}/rebar3 \
+    -o /usr/local/bin/rebar3 && chmod +x /usr/local/bin/rebar3 \
+    && rebar3 version
+
+# Run as the invoking user rather than root. The compose file bind-mounts the
+# project directory, so a root container leaves root-owned files behind in the
+# developer's working tree -- which then blocks host-side targets from writing
+# there. The uid/gid come from the Makefile, which passes the caller's own.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN if ! getent group ${HOST_GID} >/dev/null; then \
+        groupadd -g ${HOST_GID} build; \
+    fi \
+    && if ! getent passwd ${HOST_UID} >/dev/null; then \
+        useradd -u ${HOST_UID} -g ${HOST_GID} -m -s /bin/sh build; \
+    fi \
+# Pre-create every directory a named volume mounts onto, owned by that user.
+# Docker seeds a fresh named volume from the image path it covers, so creating
+# these here is what makes the volumes writable without chowning at runtime.
+    && install -d -o ${HOST_UID} -g ${HOST_GID} /app /app/_build /cache
+
+# Keep rebar3's cache on an explicit path instead of $HOME, so it does not
+# depend on which home directory the uid above resolved to.
+ENV REBAR_CACHE_DIR=/cache
+
+USER ${HOST_UID}:${HOST_GID}
 
 CMD ["make", "local-test"]
