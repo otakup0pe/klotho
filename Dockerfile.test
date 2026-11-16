@@ -1,4 +1,4 @@
-FROM erlang:27.3.4.9-slim
+FROM erlang:27.3.4.9-slim@sha256:a8403c4e5ec42d6b48fe023ae1afd4e0fcfcb7272a559a6c5aa69d2f9d05ff12
 
 RUN apt-get update \
     && apt-get install -y make git curl \
@@ -6,15 +6,13 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# The erlang image tag pins Erlang but NOT rebar3, so an uninstalled
-# rebar3 drifts with the base image's build date. Pin the published
-# release escript instead. 3.28.0 fixes CVE-2026-103060 (first fixed in
-# 3.27.2); it also reads TLS roots from the OS store rather than bundled
-# Certifi. `rebar3 version` asserts that this download, not the image's
-# own copy, is what ended up on PATH.
 ARG REBAR3_VERSION=3.28.0
+# Recorded from an attestation-verified download: make lint-rebar3-attestation
+ARG REBAR3_SHA256=5a28b1cca082d3b023ec0f5df9d9f9d52557036c6f2a21c1ffa11b93a984dd42
 RUN curl -fsSL https://github.com/erlang/rebar3/releases/download/${REBAR3_VERSION}/rebar3 \
-    -o /usr/local/bin/rebar3 && chmod +x /usr/local/bin/rebar3 \
+    -o /usr/local/bin/rebar3 \
+    && echo "${REBAR3_SHA256}  /usr/local/bin/rebar3" | sha256sum -c - \
+    && chmod +x /usr/local/bin/rebar3 \
     && rebar3 version
 
 # Run as the invoking user rather than root. The compose file bind-mounts the

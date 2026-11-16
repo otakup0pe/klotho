@@ -5,7 +5,7 @@ Notable changes to Klotho are recorded here. This project follows
 
 ## [Unreleased]
 
-## [0.1.0]
+## [0.1.0] - 2026-11-15
 
 🎆 First release.
 

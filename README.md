@@ -2,10 +2,16 @@
 
 [![CI](https://github.com/otakup0pe/klotho/actions/workflows/ci.yml/badge.svg)](https://github.com/otakup0pe/klotho/actions/workflows/ci.yml)
 [![Maintenance](https://img.shields.io/maintenance/yes/2026.svg)](https://github.com/otakup0pe/klotho)
+[![Release](https://img.shields.io/github/v/release/otakup0pe/klotho)](https://github.com/otakup0pe/klotho/releases)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 An Erlang/OTP library for LLM agent tool-use loops. Named after the
 Greek Fate who spins the thread of life.
+
+A reference harness that wires klotho together with
+[erl_openrouter](https://github.com/otakup0pe/erl_openrouter) and
+[erl_mcp](https://github.com/otakup0pe/erl_mcp) — moirai, the Fate who
+allots — is coming soon.
 
 ## Requirements
 
@@ -14,15 +20,9 @@ Greek Fate who spins the thread of life.
 
 ## Quick Start
 
-Add the dependency to `rebar.config`:
-
-```erlang
-{deps, [
-    {klotho, {git, "https://github.com/otakup0pe/klotho.git", {tag, "0.1.0"}}}
-]}.
-```
-
-Add `klotho` to your application's `applications` list.
+Add `klotho` to your `rebar.config` deps and to your application's
+`applications` list, picking a version from
+[releases](https://github.com/otakup0pe/klotho/releases).
 
 ### Run a single agent task
 

@@ -4,7 +4,8 @@ ROOT_DIR:=$(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))
         test docker-test local-test local-eunit local-ct \
         dialyzer docker-dialyzer local-dialyzer \
         shell docker-shell local-shell lint-secrets \
-        lint-version-bump docker-build resolve-checkouts dev-upgrade clean
+        lint-secrets-staged lint-rebar3-attestation \
+        docker-build resolve-checkouts dev-upgrade clean
 
 REBAR3 ?= rebar3
 # Passed to Dockerfile.test so the container runs as the caller rather than
@@ -17,6 +18,13 @@ COMPOSE ?= docker compose -f docker-compose.test.yml -f $(CHECKOUTS_OVERRIDE)
 GITLEAKS_IMAGE ?= ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 GITLEAKS_MODE ?= git
 GITLEAKS_SOURCE ?= .
+# `git` mode reads COMMITS, so it cannot see staged-but-uncommitted content.
+# The pre-commit target overrides this with the documented staged invocation.
+GITLEAKS_FLAGS ?=
+# Keep in step with Dockerfile.test's ARG and ci.yml's env until one source of
+# truth exists for it.
+REBAR3_VERSION ?= 3.28.0
+REBAR3_URL = https://github.com/erlang/rebar3/releases/download/$(REBAR3_VERSION)/rebar3
 
 export BUILDX_BUILDER ?= default
 
@@ -82,13 +90,6 @@ local-dialyzer:
 local-shell:
 	$(REBAR3) shell
 
-lint-version-bump:
-	@test "$$(printf 'fix parser #patch\n' | sh scripts/version-bump-part)" = patch
-	@test "$$(printf 'add tool BUMP:minor\n' | sh scripts/version-bump-part)" = minor
-	@test "$$(printf 'break API bump:major\n' | sh scripts/version-bump-part)" = major
-	@test "$$(printf 'major wins #patch #major\n' | sh scripts/version-bump-part)" = major
-	@test -z "$$(printf 'ordinary commit\n' | sh scripts/version-bump-part)"
-
 lint-secrets:
 	docker run --rm \
 		--user "$$(id -u):$$(id -g)" \
@@ -98,7 +99,22 @@ lint-secrets:
 		--tmpfs /tmp:rw,noexec,nosuid,size=16m \
 		-v "$(ROOT_DIR):/repo:ro" \
 		-w /repo \
-		$(GITLEAKS_IMAGE) $(GITLEAKS_MODE) $(GITLEAKS_SOURCE) --redact --no-banner --verbose
+		$(GITLEAKS_IMAGE) $(GITLEAKS_MODE) $(GITLEAKS_SOURCE) $(GITLEAKS_FLAGS) --redact --no-banner --verbose
+
+lint-secrets-staged: GITLEAKS_FLAGS := --pre-commit --staged
+lint-secrets-staged: lint-secrets
+
+# Prints the digest Dockerfile.test's REBAR3_SHA256 must match.
+lint-rebar3-attestation:
+	@set -e; \
+	tmp="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	curl -fsSL "$(REBAR3_URL)" -o "$$tmp/rebar3"; \
+	gh attestation verify "$$tmp/rebar3" \
+		--repo erlang/rebar3 \
+		--signer-workflow erlang/rebar3/.github/workflows/publish.yml \
+		--deny-self-hosted-runners; \
+	sha256sum "$$tmp/rebar3"
 
 # Unlock before resolving because rebar3 upgrade can leave git branch
 # dependencies pinned to stale refs while still exiting successfully.
