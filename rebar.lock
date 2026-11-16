@@ -7,7 +7,7 @@
   0},
  {<<"erl_openrouter">>,
   {git,"https://github.com/otakup0pe/erl_openrouter.git",
-       {ref,"2fb1375610c540ca8c6fd1c120fa3df269c06ec9"}},
+       {ref,"113b7b14d9b8f57cf627c12b5653599a3b4881a6"}},
   0},
  {<<"jsx">>,{pkg,<<"jsx">>,<<"3.1.0">>},1},
  {<<"ranch">>,{pkg,<<"ranch">>,<<"1.8.0">>},2},

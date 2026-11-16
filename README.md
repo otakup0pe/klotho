@@ -8,10 +8,10 @@
 An Erlang/OTP library for LLM agent tool-use loops. Named after the
 Greek Fate who spins the thread of life.
 
-A reference harness that wires klotho together with
+This is a key component of `moirai` (the Fate who allots) the
+reference harness that wires klotho together with
 [erl_openrouter](https://github.com/otakup0pe/erl_openrouter) and
-[erl_mcp](https://github.com/otakup0pe/erl_mcp) — moirai, the Fate who
-allots — is coming soon.
+[erl_mcp](https://github.com/otakup0pe/erl_mcp).
 
 ## Requirements
 
